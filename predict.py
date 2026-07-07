@@ -22,7 +22,7 @@ import joblib
 from data_preprocessing import PreprocessData
 
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_DIR = BASE_DIR / "model"
+MODEL_DIR = BASE_DIR / "models"
 
 PIPELINE = joblib.load(MODEL_DIR / "random_forest_pipeline.joblib")
 METADATA = joblib.load(MODEL_DIR / "random_forest_metadata.joblib")
