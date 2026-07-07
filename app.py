@@ -1,13 +1,17 @@
 """
 app.py
 
-FastAPI app for the Immo Eliza deployment mission.
+FastAPI app serving 5 price-prediction models (ridge, decision_tree,
+random_forest, svm, xgboost) with model selection.
 
 Routes
 ------
-GET  /         -> "alive" (health check)
-POST /predict  -> body {"data": {...listing fields...}}
-                   -> {"prediction": float | None, "status_code": int}
+GET  /                    -> "alive" (health check)
+GET  /models              -> list of models with display name + test scores
+GET  /feature-importance  -> ?model=<name> -> that model's own grouped
+                              feature importance, or null if unavailable
+POST /predict              -> body {"model": "<name>", "data": {...}}
+                              -> {"prediction": float | None, "status_code": int}
 
 Run locally:
     uvicorn app:app --reload
@@ -21,12 +25,12 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from predict import predict
+from predict import predict, list_models, get_feature_importance, MODELS
 
 
 # ====================================================================
-#  Request schema -- every field optional (partial listings allowed).
-#  Adjust/rename fields here if the model's feature set changes.
+#  Request schema -- every listing field optional (partial listings
+#  allowed); "model" selects which trained pipeline to use.
 # ====================================================================
 class ListingData(BaseModel):
     living_area_m2: Optional[float] = None
@@ -58,6 +62,7 @@ class ListingData(BaseModel):
 
 
 class PredictRequest(BaseModel):
+    model: str
     data: ListingData
 
 
@@ -72,10 +77,30 @@ def alive():
     return "alive"
 
 
+@app.get("/models")
+def models():
+    return {"models": list_models()}
+
+
+@app.get("/feature-importance")
+def feature_importance(model: str):
+    if model not in MODELS:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Unknown model '{model}'.", "status_code": 404},
+        )
+    return {"model": model, "top_features": get_feature_importance(model)}
+
+
 @app.post("/predict")
 def predict_endpoint(request: PredictRequest):
-    raw_listing = request.data.model_dump(exclude_none=True)
+    if request.model not in MODELS:
+        return JSONResponse(
+            status_code=404,
+            content={"prediction": None, "status_code": 404, "error": f"Unknown model '{request.model}'."},
+        )
 
+    raw_listing = request.data.model_dump(exclude_none=True)
     if not raw_listing:
         return JSONResponse(
             status_code=400,
@@ -83,7 +108,7 @@ def predict_endpoint(request: PredictRequest):
         )
 
     try:
-        price = predict(raw_listing)
+        price = predict(raw_listing, request.model)
     except Exception:
         return JSONResponse(
             status_code=500,
